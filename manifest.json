@@ -1,0 +1,14 @@
+{
+  "name": "Increment Ledger - GGHL",
+  "short_name": "Increments",
+  "description": "Employee salary increment lookup with full history and gross salary breakup.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#F2F4F0",
+  "theme_color": "#0E3B2E",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

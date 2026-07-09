@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Increment Ledger · GGHL</title>
+<meta name="description" content="Employee salary increment lookup — last increment, full history and gross salary breakup.">
+<meta name="theme-color" content="#0E3B2E">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Increments">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --pine:#0E3B2E; --pine-2:#134A3A; --ink:#152420;
+  --leaf:#149463; --leaf-soft:#E2F3EB; --leaf-line:#BFE4D2;
+  --rust:#B4491F; --rust-soft:#F9E9E1;
+  --paper:#F2F4F0; --card:#FFFFFF; --line:#E3E8E2;
+  --muted:#61705F; --gold:#C79A3B;
+  --radius:16px; --shadow:0 1px 2px rgba(21,36,32,.06),0 8px 24px rgba(21,36,32,.07);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:var(--paper);color:var(--ink);min-height:100vh;
+  font-variant-numeric:tabular-nums;
+}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:6px}
+
+/* ---------- header ---------- */
+header{
+  background:linear-gradient(160deg,var(--pine) 0%,var(--pine-2) 78%);
+  color:#F3F7F2;padding:calc(env(safe-area-inset-top,0px) + 20px) 18px 66px;
+  position:relative;overflow:hidden;
+}
+header::after{ /* faint ledger rules */
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent 0 27px,rgba(255,255,255,.05) 27px 28px);
+}
+.h-wrap{max-width:860px;margin:0 auto;position:relative;z-index:1}
+.eyebrow{font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;color:#9FC5B2;font-weight:600}
+h1{font-size:1.5rem;font-weight:700;letter-spacing:-.01em;margin-top:4px}
+.h-sub{font-size:.82rem;color:#BBD6C7;margin-top:4px}
+.stats{display:flex;gap:22px;margin-top:16px;flex-wrap:wrap}
+.stat b{display:block;font-size:1.15rem;font-weight:700}
+.stat span{font-size:.7rem;color:#9FC5B2;letter-spacing:.06em;text-transform:uppercase}
+
+/* ---------- controls ---------- */
+.controls{max-width:860px;margin:-42px auto 0;padding:0 14px;position:relative;z-index:2;display:flex;gap:10px}
+.search-box{
+  flex:1;display:flex;align-items:center;gap:10px;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:0 14px;height:52px;
+}
+.search-box svg{flex:none;color:var(--muted)}
+#q{border:0;outline:none;background:none;width:100%;height:100%;font-size:1rem}
+#q::placeholder{color:#9AA79A}
+#coSel{
+  height:52px;border:1px solid var(--line);border-radius:14px;background:var(--card);
+  box-shadow:var(--shadow);padding:0 12px;max-width:170px;color:var(--ink);cursor:pointer;
+}
+@media (max-width:520px){ #coSel{max-width:120px;font-size:.88rem} }
+
+/* ---------- list ---------- */
+main{max-width:860px;margin:0 auto;padding:18px 14px calc(env(safe-area-inset-bottom,0px) + 40px)}
+.hint{color:var(--muted);font-size:.85rem;padding:10px 4px}
+#list{display:flex;flex-direction:column;gap:10px}
+.emp{
+  display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:13px 16px;cursor:pointer;text-align:left;width:100%;
+  box-shadow:0 1px 2px rgba(21,36,32,.04);transition:transform .12s ease,box-shadow .12s ease;
+}
+.emp:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.avatar{
+  flex:none;width:42px;height:42px;border-radius:12px;background:var(--leaf-soft);color:var(--pine);
+  display:grid;place-items:center;font-weight:700;font-size:.9rem;letter-spacing:.02em;
+}
+.emp-mid{min-width:0;flex:1}
+.emp-name{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.emp-meta{font-size:.76rem;color:var(--muted);margin-top:2px}
+.emp-right{text-align:right;flex:none}
+.emp-sal{font-weight:700;font-size:.95rem}
+.chip{
+  display:inline-block;margin-top:3px;font-size:.72rem;font-weight:700;border-radius:99px;padding:2px 9px;
+}
+.chip.up{background:var(--leaf-soft);color:#0D7A50}
+.chip.none{background:#EEF1ED;color:var(--muted);font-weight:600}
+.loading{display:flex;align-items:center;gap:12px;color:var(--muted);padding:28px 6px;font-size:.9rem}
+.spin{width:18px;height:18px;border:2.5px solid var(--line);border-top-color:var(--leaf);border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.error-box{background:var(--rust-soft);border:1px solid #EBC9B6;color:#7C3212;border-radius:var(--radius);padding:16px;font-size:.9rem;line-height:1.5}
+
+/* ---------- detail sheet ---------- */
+#overlay{position:fixed;inset:0;background:rgba(14,32,26,.45);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:9}
+#overlay.show{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;z-index:10;inset:auto 0 0 0;top:max(28px, env(safe-area-inset-top,0px));
+  max-width:760px;margin:0 auto;background:var(--paper);border-radius:22px 22px 0 0;
+  transform:translateY(102%);transition:transform .28s cubic-bezier(.32,.72,.28,1);
+  overflow-y:auto;overscroll-behavior:contain;box-shadow:0 -12px 40px rgba(14,32,26,.25);
+}
+#sheet.show{transform:translateY(0)}
+@media (min-width:820px){
+  #sheet{inset:40px 0;border-radius:22px;height:auto}
+}
+.sheet-head{
+  position:sticky;top:0;background:linear-gradient(160deg,var(--pine),var(--pine-2));color:#F3F7F2;
+  padding:14px 18px 18px;border-radius:22px 22px 0 0;z-index:2;
+}
+.grab{width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.35);margin:0 auto 10px}
+.sh-row{display:flex;align-items:flex-start;gap:12px}
+.sh-name{font-size:1.15rem;font-weight:700;line-height:1.25}
+.sh-meta{font-size:.78rem;color:#AFCFBE;margin-top:3px}
+#closeBtn{
+  margin-left:auto;flex:none;width:34px;height:34px;border-radius:50%;border:0;cursor:pointer;
+  background:rgba(255,255,255,.14);color:#fff;font-size:1.05rem;line-height:1;
+}
+.sheet-body{padding:16px 16px 40px;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 2px rgba(21,36,32,.04)}
+.card-h{padding:12px 16px;border-bottom:1px solid var(--line);font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+/* last increment hero */
+.hero{padding:18px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.hero-amt{font-size:1.9rem;font-weight:800;color:#0D7A50;letter-spacing:-.02em}
+.hero-amt.down{color:var(--rust)}
+.hero-amt small{font-size:.85rem;font-weight:700;color:var(--muted)}
+.hero-info{font-size:.85rem;color:var(--muted);line-height:1.55}
+.hero-info b{color:var(--ink)}
+.pct{display:inline-block;background:var(--leaf-soft);color:#0D7A50;border-radius:99px;font-size:.75rem;font-weight:700;padding:2px 10px;margin-left:8px}
+.no-inc{padding:18px 16px;color:var(--muted);font-size:.9rem;line-height:1.5}
+
+/* breakup comparison */
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:9px 14px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;background:#FAFBF9}
+tbody tr:last-child td{border-bottom:0;font-weight:800;background:#FAFBF9}
+td.up{color:#0D7A50;font-weight:700}
+td.down{color:var(--rust);font-weight:700}
+td.zero{color:#A9B4A8}
+
+/* history ledger — signature element */
+.ledger{padding:6px 0 10px}
+.ev{display:flex;gap:14px;padding:12px 16px 12px 20px;position:relative}
+.ev::before{ /* rail */
+  content:"";position:absolute;left:27px;top:0;bottom:0;width:2px;background:var(--leaf-line);
+}
+.ev:first-child::before{top:22px}
+.ev:last-child::before{bottom:auto;height:22px}
+.dot{
+  flex:none;width:16px;height:16px;border-radius:50%;margin-top:4px;position:relative;z-index:1;
+  background:var(--leaf);box-shadow:0 0 0 4px var(--leaf-soft);
+}
+.dot.down{background:var(--rust);box-shadow:0 0 0 4px var(--rust-soft)}
+.ev-main{flex:1;min-width:0}
+.ev-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ev-month{font-weight:700;font-size:.92rem}
+.ev-delta{font-weight:800;font-size:.92rem;color:#0D7A50}
+.ev-delta.down{color:var(--rust)}
+.ev-range{font-size:.8rem;color:var(--muted);margin-top:2px}
+.ev-comps{font-size:.76rem;color:var(--muted);margin-top:4px;line-height:1.6}
+.ev-comps b{color:var(--ink);font-weight:600}
+footer{max-width:860px;margin:0 auto;padding:8px 18px 26px;color:#93A093;font-size:.74rem;text-align:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="h-wrap">
+    <div class="eyebrow">Gulf Group Holding · HR Payroll</div>
+    <h1>Increment Ledger</h1>
+    <div class="h-sub" id="rangeSub">Loading salary data…</div>
+    <div class="stats" id="stats" hidden>
+      <div class="stat"><b id="stEmp">–</b><span>Employees</span></div>
+      <div class="stat"><b id="stInc">–</b><span>With increments</span></div>
+      <div class="stat"><b id="stEv">–</b><span>Increment events</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="controls">
+  <div class="search-box">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" placeholder="Personnel number or name…" autocomplete="off" aria-label="Search by personnel number or name">
+  </div>
+  <select id="coSel" aria-label="Filter by company"><option value="">All companies</option></select>
+</div>
+
+<main>
+  <div class="hint" id="hint"></div>
+  <div id="list"><div class="loading"><div class="spin"></div>Reading data.xlsx…</div></div>
+</main>
+
+<footer>Data source: data.xlsx in this repository · Increments detected from month-to-month change in gross salary</footer>
+
+<div id="overlay"></div>
+<section id="sheet" role="dialog" aria-modal="true" aria-label="Employee increment details">
+  <div class="sheet-head">
+    <div class="grab"></div>
+    <div class="sh-row">
+      <div>
+        <div class="sh-name" id="dName"></div>
+        <div class="sh-meta" id="dMeta"></div>
+      </div>
+      <button id="closeBtn" aria-label="Close details">✕</button>
+    </div>
+  </div>
+  <div class="sheet-body" id="dBody"></div>
+</section>
+
+<script>
+"use strict";
+/* ===== Edit company names here (code → display name) ===== */
+const COMPANY_NAMES = {
+  1000:"Co. 1000", 2000:"Co. 2000", 2100:"Co. 2100", 2300:"Co. 2300",
+  2600:"Co. 2600", 2700:"Co. 2700", 2800:"Co. 2800", 3000:"Co. 3000",
+  3100:"Co. 3100", 3300:"Co. 3300", 3400:"Co. 3400", 3500:"Co. 3500",
+  4000:"Co. 4000", 4100:"Co. 4100"
+};
+const COMPS = [["Basic-D","Basic"],["Allw-D","Allowance"],["Car Allw-D","Car Allw."],["Home Allw-D","Home Allw."]];
+const fmt = n => new Intl.NumberFormat("en-AE",{maximumFractionDigits:2}).format(n);
+const money = n => "AED " + fmt(n);
+const sign = n => (n>0?"+":"−") + fmt(Math.abs(n));
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const mLabel = d => MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear();
+const coName = c => COMPANY_NAMES[c] || ("Co. " + c);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let EMPLOYEES = [];           // [{pn,name,co,rows:[{d,basic,allw,car,home,total}],events:[...],last:event|null}]
+const byPN = new Map();
+
+function toDate(v){
+  if (v instanceof Date) return new Date(Date.UTC(v.getFullYear?v.getFullYear():1970, v.getMonth(), v.getDate()));
+  if (typeof v === "number") { const d = new Date(Math.round((v - 25569) * 86400000)); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
+  const d = new Date(v); return isNaN(d) ? null : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
+async function load(){
+  try{
+    const res = await fetch("data.xlsx?v=" + Date.now(), {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status + " while fetching data.xlsx");
+    const buf = await res.arrayBuffer();
+    const wb = XLSX.read(buf, {type:"array", cellDates:true});
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {raw:true});
+    build(rows);
+  }catch(err){
+    document.getElementById("list").innerHTML =
+      '<div class="error-box"><b>Could not load data.xlsx.</b><br>' + esc(err.message) +
+      '<br><br>Make sure <b>data.xlsx</b> sits in the same folder as index.html in the repository, then refresh.</div>';
+    document.getElementById("rangeSub").textContent = "Data unavailable";
+  }
+}
+
+function build(rows){
+  for (const r of rows){
+    const pn = r["Personnel Number"]; if (pn == null) continue;
+    const d = toDate(r["Payment date"]); if (!d) continue;
+    const total = +r["Total Salary"] || 0; if (total <= 0) continue; // skip unpaid months
+    let e = byPN.get(pn);
+    if(!e){ e = {pn, name:String(r["Name of employee or applicant"]||"").trim(), co:r["Company"], rows:[]}; byPN.set(pn, e); }
+    e.rows.push({ d, co:r["Company"], basic:+r["Basic-D"]||0, allw:+r["Allw-D"]||0, car:+r["Car Allw-D"]||0, home:+r["Home Allw-D"]||0, total });
+  }
+  let totalEvents = 0, withInc = 0;
+  for (const e of byPN.values()){
+    e.rows.sort((a,b)=>a.d-b.d);
+    const lastRow = e.rows[e.rows.length-1];
+    e.current = lastRow;
+    e.co = lastRow.co; // latest company (handles inter-company transfers)
+    e.events = [];
+    for (let i=1;i<e.rows.length;i++){
+      const p = e.rows[i-1], c = e.rows[i];
+      if (c.total !== p.total){
+        e.events.push({ d:c.d, from:p, to:c, diff:c.total - p.total });
+      }
+    }
+    totalEvents += e.events.filter(v=>v.diff>0).length;
+    const incs = e.events.filter(v=>v.diff>0);
+    e.last = incs.length ? incs[incs.length-1] : null;
+    if (e.last) withInc++;
+  }
+  EMPLOYEES = [...byPN.values()].sort((a,b)=>a.name.localeCompare(b.name));
+
+  // header stats + range
+  let minD=null,maxD=null;
+  for (const e of EMPLOYEES){ const f=e.rows[0].d,l=e.current.d; if(!minD||f<minD)minD=f; if(!maxD||l>maxD)maxD=l; }
+  document.getElementById("rangeSub").textContent = "Gross salary records · " + mLabel(minD) + " – " + mLabel(maxD);
+  document.getElementById("stEmp").textContent = fmt(EMPLOYEES.length);
+  document.getElementById("stInc").textContent = fmt(withInc);
+  document.getElementById("stEv").textContent = fmt(totalEvents);
+  document.getElementById("stats").hidden = false;
+
+  // company dropdown (by latest company)
+  const cos = [...new Set(EMPLOYEES.map(e=>e.co))].sort((a,b)=>a-b);
+  const sel = document.getElementById("coSel");
+  for (const c of cos){ const o=document.createElement("option"); o.value=c; o.textContent=coName(c); sel.appendChild(o); }
+
+  render();
+}
+
+function matches(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const co = document.getElementById("coSel").value;
+  return EMPLOYEES.filter(e =>
+    (!co || String(e.co)===co) &&
+    (!q || String(e.pn).includes(q) || e.name.toLowerCase().includes(q))
+  );
+}
+
+function render(){
+  const list = document.getElementById("list");
+  const res = matches();
+  const LIMIT = 60;
+  document.getElementById("hint").textContent =
+    res.length ? (res.length > LIMIT ? `Showing first ${LIMIT} of ${fmt(res.length)} employees — refine your search` : `${fmt(res.length)} employee${res.length>1?"s":""}`)
+               : "No employees match this search.";
+  list.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (const e of res.slice(0,LIMIT)){
+    const b = document.createElement("button");
+    b.className = "emp";
+    const initials = e.name.split(/\s+/).slice(0,2).map(w=>w[0]||"").join("");
+    b.innerHTML = `
+      <div class="avatar">${esc(initials)}</div>
+      <div class="emp-mid">
+        <div class="emp-name">${esc(e.name)}</div>
+        <div class="emp-meta">PN ${e.pn} · ${esc(coName(e.co))}</div>
+      </div>
+      <div class="emp-right">
+        <div class="emp-sal">${money(e.current.total)}</div>
+        ${e.last ? `<span class="chip up">↑ ${fmt(e.last.diff)} · ${mLabel(e.last.d)}</span>`
+                 : `<span class="chip none">No increment</span>`}
+      </div>`;
+    b.addEventListener("click", ()=>openDetail(e));
+    frag.appendChild(b);
+  }
+  list.appendChild(frag);
+}
+
+function compDeltaLine(ev){
+  const parts = [];
+  const map = [["basic","Basic"],["allw","Allw."],["car","Car"],["home","Home"]];
+  for (const [k,label] of map){
+    const dv = ev.to[k]-ev.from[k];
+    if (dv !== 0) parts.push(`<b>${label}</b> ${sign(dv)}`);
+  }
+  return parts.join(" · ");
+}
+
+function breakupTable(prevRow, curRow, prevLabel, curLabel){
+  const map = [["basic","Basic-D"],["allw","Allw-D"],["car","Car Allw-D"],["home","Home Allw-D"]];
+  let body = "";
+  for (const [k,label] of map){
+    const p = prevRow ? prevRow[k] : null, c = curRow[k];
+    const dv = prevRow ? c-p : null;
+    body += `<tr><td>${label}</td><td>${prevRow?fmt(p):"–"}</td><td>${fmt(c)}</td>
+      <td class="${dv===null||dv===0?"zero":dv>0?"up":"down"}">${dv===null?"–":dv===0?"0":sign(dv)}</td></tr>`;
+  }
+  const dt = prevRow ? curRow.total - prevRow.total : null;
+  body += `<tr><td>Total Gross</td><td>${prevRow?fmt(prevRow.total):"–"}</td><td>${fmt(curRow.total)}</td>
+    <td class="${dt===null||dt===0?"zero":dt>0?"up":"down"}">${dt===null?"–":dt===0?"0":sign(dt)}</td></tr>`;
+  return `<table>
+    <thead><tr><th>Component</th><th>Previous<br>${prevLabel||""}</th><th>Current<br>${curLabel}</th><th>Change</th></tr></thead>
+    <tbody>${body}</tbody></table>`;
+}
+
+function openDetail(e){
+  document.getElementById("dName").textContent = e.name;
+  document.getElementById("dMeta").textContent =
+    `PN ${e.pn} · ${coName(e.co)} · Records ${mLabel(e.rows[0].d)} – ${mLabel(e.current.d)}`;
+  const body = document.getElementById("dBody");
+  let html = "";
+
+  // 1 — last increment hero
+  if (e.last){
+    const pct = (e.last.diff / e.last.from.total) * 100;
+    html += `<div class="card"><div class="card-h">Last Increment</div>
+      <div class="hero">
+        <div class="hero-amt">+${fmt(e.last.diff)} <small>AED</small></div>
+        <div class="hero-info">
+          Incremented in <b>${mLabel(e.last.d)}</b><span class="pct">+${pct.toFixed(1)}%</span><br>
+          Gross moved from <b>${money(e.last.from.total)}</b> to <b>${money(e.last.to.total)}</b>
+        </div>
+      </div></div>`;
+  } else {
+    html += `<div class="card"><div class="card-h">Last Increment</div>
+      <div class="no-inc">No increment recorded within the available data (${mLabel(e.rows[0].d)} – ${mLabel(e.current.d)}).</div></div>`;
+  }
+
+  // 2 — current vs previous breakup
+  const prevRow = e.last ? e.last.from : (e.rows.length>1 ? e.rows[e.rows.length-2] : null);
+  const prevLabel = prevRow ? mLabel(prevRow.d) : "";
+  html += `<div class="card"><div class="card-h">Gross Salary Breakup — Previous vs Current</div>
+    ${breakupTable(prevRow, e.current, prevLabel, mLabel(e.current.d))}</div>`;
+
+  // 3 — full history ledger
+  html += `<div class="card"><div class="card-h">Increment History (${e.events.length ? e.events.length : "none"})</div>`;
+  if (e.events.length){
+    html += `<div class="ledger">`;
+    for (const ev of [...e.events].reverse()){
+      const up = ev.diff > 0;
+      html += `<div class="ev">
+        <div class="dot ${up?"":"down"}"></div>
+        <div class="ev-main">
+          <div class="ev-top">
+            <span class="ev-month">${mLabel(ev.d)}</span>
+            <span class="ev-delta ${up?"":"down"}">${sign(ev.diff)} AED${up?"":" · reduction"}</span>
+          </div>
+          <div class="ev-range">${money(ev.from.total)} → ${money(ev.to.total)}</div>
+          ${compDeltaLine(ev) ? `<div class="ev-comps">${compDeltaLine(ev)}</div>` : ""}
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  } else {
+    html += `<div class="no-inc">Gross salary has stayed unchanged month to month.</div>`;
+  }
+  html += `</div>`;
+
+  body.innerHTML = html;
+  document.getElementById("overlay").classList.add("show");
+  const sheet = document.getElementById("sheet");
+  sheet.scrollTop = 0; sheet.classList.add("show");
+  document.getElementById("closeBtn").focus();
+}
+function closeDetail(){
+  document.getElementById("overlay").classList.remove("show");
+  document.getElementById("sheet").classList.remove("show");
+}
+document.getElementById("overlay").addEventListener("click", closeDetail);
+document.getElementById("closeBtn").addEventListener("click", closeDetail);
+window.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDetail(); });
+document.getElementById("q").addEventListener("input", render);
+document.getElementById("coSel").addEventListener("change", render);
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+load();
+</script>
+</body>
+</html>
