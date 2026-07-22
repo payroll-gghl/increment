@@ -93,6 +93,39 @@ main{max-width:860px;margin:0 auto;padding:18px 14px calc(env(safe-area-inset-bo
 @keyframes sp{to{transform:rotate(360deg)}}
 .error-box{background:var(--rust-soft);border:1px solid #EBC9B6;color:#7C3212;border-radius:var(--radius);padding:16px;font-size:.9rem;line-height:1.5}
 
+/* ---------- report toolbar & sheet ---------- */
+.toolbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:2px 2px 0}
+.btn{
+  border:0;cursor:pointer;border-radius:12px;font-weight:700;font-size:.85rem;padding:10px 16px;
+  display:inline-flex;align-items:center;gap:8px;transition:filter .12s;
+}
+.btn:hover{filter:brightness(1.07)}
+.btn-primary{background:var(--pine);color:#F3F7F2}
+.btn-leaf{background:var(--leaf);color:#fff}
+.btn-ghost{background:rgba(255,255,255,.16);color:#fff;font-weight:600;padding:8px 13px;font-size:.8rem}
+#rsheet{
+  position:fixed;z-index:10;inset:auto 0 0 0;top:max(20px, env(safe-area-inset-top,0px));
+  max-width:1100px;margin:0 auto;background:var(--paper);border-radius:22px 22px 0 0;
+  transform:translateY(102%);transition:transform .28s cubic-bezier(.32,.72,.28,1);
+  display:flex;flex-direction:column;box-shadow:0 -12px 40px rgba(14,32,26,.25);
+}
+#rsheet.show{transform:translateY(0)}
+@media (min-width:1140px){ #rsheet{inset:30px 0;border-radius:22px} }
+.rhead{
+  background:linear-gradient(160deg,var(--pine),var(--pine-2));color:#F3F7F2;
+  padding:14px 18px 16px;border-radius:22px 22px 0 0;flex:none;
+}
+.rhead-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rtitle{font-size:1.05rem;font-weight:700;margin-right:auto}
+.rtitle small{display:block;font-size:.74rem;font-weight:500;color:#AFCFBE;margin-top:2px}
+.rtable-wrap{overflow:auto;flex:1;overscroll-behavior:contain;background:var(--card)}
+.rtable-wrap table{min-width:960px}
+.rtable-wrap thead th{position:sticky;top:0;background:#FAFBF9;z-index:1;box-shadow:0 1px 0 var(--line)}
+.rtable-wrap tbody tr{cursor:pointer}
+.rtable-wrap tbody tr:hover td{background:#F3F7F1}
+.rtable-wrap tbody tr:last-child td{font-weight:inherit;background:inherit;border-bottom:1px solid var(--line)}
+.rcount{font-size:.78rem;color:#AFCFBE;width:100%}
+
 /* ---------- detail sheet ---------- */
 #overlay{position:fixed;inset:0;background:rgba(14,32,26,.45);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s;z-index:9}
 #overlay.show{opacity:1;pointer-events:auto}
@@ -191,6 +224,12 @@ footer{max-width:860px;margin:0 auto;padding:8px 18px 26px;color:#93A093;font-si
 </div>
 
 <main>
+  <div class="toolbar">
+    <button class="btn btn-primary" id="reportBtn" disabled>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20h16M7 16V9m5 7V5m5 11v-6"/></svg>
+      View report
+    </button>
+  </div>
   <div class="hint" id="hint"></div>
   <div id="list"><div class="loading"><div class="spin"></div>Reading data.xlsx…</div></div>
 </main>
@@ -206,10 +245,30 @@ footer{max-width:860px;margin:0 auto;padding:8px 18px 26px;color:#93A093;font-si
         <div class="sh-name" id="dName"></div>
         <div class="sh-meta" id="dMeta"></div>
       </div>
+      <button class="btn btn-ghost" id="empXlsBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+        Excel
+      </button>
       <button id="closeBtn" aria-label="Close details">✕</button>
     </div>
   </div>
   <div class="sheet-body" id="dBody"></div>
+</section>
+
+<section id="rsheet" role="dialog" aria-modal="true" aria-label="Increment report">
+  <div class="rhead">
+    <div class="grab"></div>
+    <div class="rhead-row">
+      <div class="rtitle">Increment Report<small id="rScope"></small></div>
+      <button class="btn btn-leaf" id="repXlsBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+        Download Excel
+      </button>
+      <button id="rCloseBtn" class="btn btn-ghost" aria-label="Close report">✕</button>
+      <div class="rcount" id="rCount"></div>
+    </div>
+  </div>
+  <div class="rtable-wrap" id="rWrap"></div>
 </section>
 
 <script>
@@ -298,6 +357,7 @@ function build(rows){
   const sel = document.getElementById("coSel");
   for (const c of cos){ const o=document.createElement("option"); o.value=c; o.textContent=coName(c); sel.appendChild(o); }
 
+  document.getElementById("reportBtn").disabled = false;
   render();
 }
 
@@ -340,6 +400,141 @@ function render(){
   list.appendChild(frag);
 }
 
+/* ================= REPORT & EXCEL EXPORT ================= */
+let CURRENT_EMP = null;
+
+function scopeLabel(){
+  const co = document.getElementById("coSel").value;
+  const q = document.getElementById("q").value.trim();
+  let s = co ? coName(+co) : "All companies";
+  if (q) s += ` · search "${q}"`;
+  return s;
+}
+function todayStamp(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function safeName(s){ return String(s).replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,""); }
+
+function summaryRow(e){
+  const li = e.last, prev = li ? li.from : null, cur = e.current;
+  const pct = li ? +( (li.diff/li.from.total*100).toFixed(1) ) : null;
+  const totalGrowth = cur.total - e.rows[0].total;
+  return {
+    "Personnel Number": e.pn,
+    "Employee Name": e.name,
+    "Company": coName(e.co),
+    "First Record": mLabel(e.rows[0].d),
+    "Latest Month": mLabel(cur.d),
+    "Current Basic": cur.basic, "Current Allw": cur.allw,
+    "Current Car Allw": cur.car, "Current Home Allw": cur.home,
+    "Current Gross": cur.total,
+    "Last Increment Month": li ? mLabel(li.d) : "—",
+    "Increment Amount": li ? li.diff : 0,
+    "Increment %": li ? pct : 0,
+    "Previous Gross (before last incr.)": prev ? prev.total : "—",
+    "Prev Basic": prev ? prev.basic : "—", "Prev Allw": prev ? prev.allw : "—",
+    "Prev Car Allw": prev ? prev.car : "—", "Prev Home Allw": prev ? prev.home : "—",
+    "No. of Increments": e.events.filter(v=>v.diff>0).length,
+    "Total Growth Since First Record": totalGrowth
+  };
+}
+function eventRows(list){
+  const out = [];
+  for (const e of list) for (const ev of e.events){
+    out.push({
+      "Personnel Number": e.pn, "Employee Name": e.name, "Company": coName(e.co),
+      "Month": mLabel(ev.d), "Type": ev.diff>0 ? "Increment" : "Reduction",
+      "Previous Gross": ev.from.total, "New Gross": ev.to.total, "Change": ev.diff,
+      "Basic Change": ev.to.basic-ev.from.basic, "Allw Change": ev.to.allw-ev.from.allw,
+      "Car Allw Change": ev.to.car-ev.from.car, "Home Allw Change": ev.to.home-ev.from.home
+    });
+  }
+  return out;
+}
+function jsonSheet(rows, wchs){
+  const ws = XLSX.utils.json_to_sheet(rows);
+  if (wchs) ws["!cols"] = wchs.map(w=>({wch:w}));
+  return ws;
+}
+
+/* ---- in-app report (company-wise / filtered scope) ---- */
+function openReport(){
+  const list = matches();
+  document.getElementById("rScope").textContent = scopeLabel() + " · generated " + todayStamp();
+  document.getElementById("rCount").textContent =
+    `${fmt(list.length)} employees · ${fmt(list.reduce((n,e)=>n+e.events.filter(v=>v.diff>0).length,0))} increment events`;
+  const cols = ["PN","Name","Company","Current Gross","Last Incr. Month","Amount","%","Prev. Gross","# Incr.","Growth*"];
+  let html = `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr></thead><tbody>`;
+  for (const e of list){
+    const li = e.last;
+    html += `<tr data-pn="${e.pn}">
+      <td>${e.pn}</td><td style="text-align:left">${esc(e.name)}</td><td style="text-align:left">${esc(coName(e.co))}</td>
+      <td><b>${fmt(e.current.total)}</b></td>
+      <td>${li?mLabel(li.d):"—"}</td>
+      <td class="${li?"up":"zero"}">${li?"+"+fmt(li.diff):"—"}</td>
+      <td>${li?(li.diff/li.from.total*100).toFixed(1)+"%":"—"}</td>
+      <td>${li?fmt(li.from.total):"—"}</td>
+      <td>${e.events.filter(v=>v.diff>0).length}</td>
+      <td class="${e.current.total-e.rows[0].total>0?"up":"zero"}">${sign(e.current.total-e.rows[0].total)}</td>
+    </tr>`;
+  }
+  html += `</tbody></table><div style="padding:10px 16px;font-size:.72rem;color:var(--muted)">* Growth = current gross minus gross in first recorded month. Tap a row for full detail.</div>`;
+  const wrap = document.getElementById("rWrap");
+  wrap.innerHTML = html; wrap.scrollTop = 0;
+  wrap.querySelectorAll("tr[data-pn]").forEach(tr =>
+    tr.addEventListener("click", ()=>{ const e = byPN.get(+tr.dataset.pn); if(e){ closeReport(); openDetail(e); } }));
+  document.getElementById("overlay").classList.add("show");
+  document.getElementById("rsheet").classList.add("show");
+}
+function closeReport(){ document.getElementById("rsheet").classList.remove("show"); document.getElementById("overlay").classList.remove("show"); }
+
+/* ---- Excel: company-wise / filtered report ---- */
+function exportReportExcel(){
+  const list = matches();
+  const wb = XLSX.utils.book_new();
+  const sum = list.map(summaryRow);
+  XLSX.utils.book_append_sheet(wb, jsonSheet(sum, [14,32,12,12,12,12,12,13,14,13,18,14,11,24,11,11,13,14,14,16]), "Increment Summary");
+  const evs = eventRows(list);
+  if (evs.length) XLSX.utils.book_append_sheet(wb, jsonSheet(evs, [14,32,12,10,11,13,11,10,12,12,14,15]), "Increment Events");
+  const co = document.getElementById("coSel").value;
+  XLSX.writeFile(wb, `Increment_Report_${co?safeName(coName(+co)):"All_Companies"}_${todayStamp()}.xlsx`);
+}
+
+/* ---- Excel: employee-wise detailed report ---- */
+function exportEmployeeExcel(e){
+  const wb = XLSX.utils.book_new();
+  const li = e.last, cur = e.current, prev = li ? li.from : (e.rows.length>1 ? e.rows[e.rows.length-2] : null);
+  const kv = [
+    ["Employee Increment Report",""],
+    ["Personnel Number", e.pn],
+    ["Employee Name", e.name],
+    ["Company", coName(e.co)],
+    ["Records From", mLabel(e.rows[0].d)],
+    ["Records To", mLabel(cur.d)],
+    ["", ""],
+    ["Last Increment Month", li ? mLabel(li.d) : "No increment recorded"],
+    ["Increment Amount", li ? li.diff : 0],
+    ["Increment %", li ? +((li.diff/li.from.total*100).toFixed(1)) : 0],
+    ["", ""],
+    ["Component","Previous" + (prev?` (${mLabel(prev.d)})`:""), "Current (" + mLabel(cur.d) + ")", "Change"],
+    ["Basic-D", prev?prev.basic:"—", cur.basic, prev?cur.basic-prev.basic:"—"],
+    ["Allw-D", prev?prev.allw:"—", cur.allw, prev?cur.allw-prev.allw:"—"],
+    ["Car Allw-D", prev?prev.car:"—", cur.car, prev?cur.car-prev.car:"—"],
+    ["Home Allw-D", prev?prev.home:"—", cur.home, prev?cur.home-prev.home:"—"],
+    ["Total Gross", prev?prev.total:"—", cur.total, prev?cur.total-prev.total:"—"],
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(kv); ws1["!cols"]=[{wch:24},{wch:20},{wch:20},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+  const evs = eventRows([e]);
+  if (evs.length) XLSX.utils.book_append_sheet(wb, jsonSheet(evs, [14,32,12,10,11,13,11,10,12,12,14,15]), "Increment History");
+  const monthly = e.rows.map((r,i)=>({
+    "Month": mLabel(r.d), "Company": coName(r.co),
+    "Basic-D": r.basic, "Allw-D": r.allw, "Car Allw-D": r.car, "Home Allw-D": r.home,
+    "Total Gross": r.total,
+    "Change vs Prev Month": i===0 ? 0 : r.total - e.rows[i-1].total
+  }));
+  XLSX.utils.book_append_sheet(wb, jsonSheet(monthly, [10,12,10,10,12,13,12,20]), "Monthly Salary");
+  XLSX.writeFile(wb, `Increment_Report_PN${e.pn}_${safeName(e.name).slice(0,20)}.xlsx`);
+}
+
 function compDeltaLine(ev){
   const parts = [];
   const map = [["basic","Basic"],["allw","Allw."],["car","Car"],["home","Home"]];
@@ -368,6 +563,7 @@ function breakupTable(prevRow, curRow, prevLabel, curLabel){
 }
 
 function openDetail(e){
+  CURRENT_EMP = e;
   document.getElementById("dName").textContent = e.name;
   document.getElementById("dMeta").textContent =
     `PN ${e.pn} · ${coName(e.co)} · Records ${mLabel(e.rows[0].d)} – ${mLabel(e.current.d)}`;
@@ -430,11 +626,15 @@ function closeDetail(){
   document.getElementById("overlay").classList.remove("show");
   document.getElementById("sheet").classList.remove("show");
 }
-document.getElementById("overlay").addEventListener("click", closeDetail);
+document.getElementById("overlay").addEventListener("click", ()=>{ closeDetail(); closeReport(); });
 document.getElementById("closeBtn").addEventListener("click", closeDetail);
-window.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDetail(); });
+window.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeDetail(); closeReport(); } });
 document.getElementById("q").addEventListener("input", render);
 document.getElementById("coSel").addEventListener("change", render);
+document.getElementById("reportBtn").addEventListener("click", openReport);
+document.getElementById("rCloseBtn").addEventListener("click", closeReport);
+document.getElementById("repXlsBtn").addEventListener("click", exportReportExcel);
+document.getElementById("empXlsBtn").addEventListener("click", ()=>{ if(CURRENT_EMP) exportEmployeeExcel(CURRENT_EMP); });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 load();
